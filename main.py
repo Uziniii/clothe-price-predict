@@ -1,15 +1,16 @@
-import pandas as pd
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.compose import ColumnTransformer
+import pandas as pd
 import re
 
 # Load the dataset 
-#just replace the path of excel sheet file on ur device and run the code okayyy??????
 df = pd.read_excel("merged.xlsx")
 
 # Extract features and target variable
@@ -59,7 +60,6 @@ def string_size_to_number(size):
     
     return size
 
-
 def status_to_number(status):
     if status == "Neuf avec étiquette":
         return 1
@@ -107,26 +107,46 @@ model.fit(X_train, y_train)
 # Model evaluation
 predictions = model.predict(X_test)
 mse = mean_squared_error(y_test, predictions)
-
 print(f"Mean Squared Error: {mse}")
 
+# Prediction function
 def predict_price(type, brand, size, status):
     input_data = pd.DataFrame({'Type': [type], 'Brand': [brand], 'Size': [size], 'Status': [int(status)]})
 
     input_data['Size_FR'] = input_data['Size'].apply(string_size_to_number)
     input_data = input_data.drop('Size', axis=1)
-    print(input_data)
+    
     input_data_transformed = preprocessor.transform(input_data)
     input_data_transformed_imputed = imputer.transform(input_data_transformed)
     prediction = model.predict(input_data_transformed_imputed)
 
     return prediction[0]
 
-while True:
-    type_input = input("Enter the type: ")
-    brand_input = input("Enter the brand: ")
-    size_input = input("Enter the size: ")
-    status_input = input("Enter the status: ")
+# HTTP Server
+class PredictionHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        data = json.loads(post_data.decode('utf-8'))
 
-    predicted_price = predict_price(type_input, brand_input, size_input, status_input)
-    print(f"Predicted Price: {predicted_price}")
+        type_input = data['type']
+        brand_input = data['brand']
+        size_input = data['size']
+        status_input = data['status']
+
+        predicted_price = predict_price(type_input, brand_input, size_input, status_input)
+
+        response = {'predicted_price': predicted_price}
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+
+def run(server_class=HTTPServer, handler_class=PredictionHandler, port=8080):
+    server_address = ('', port)
+    httpd = server_class(server_address, handler_class)
+    print(f'Starting server on port {port}')
+    httpd.serve_forever()
+
+if __name__ == '__main__':
+    run()
